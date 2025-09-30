@@ -12,8 +12,13 @@
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 
-const char* ssid = "F.Lopes";
-const char* password = "josefa90";
+const char *ssid = "F.Lopes";
+const char *password = "josefa90";
+
+const int relePin = 2;        // Pino D4
+const int minSensorPin = 14;  // Pino D5
+const int maxSensorPin = 12;  // Pino D6
+int state = 0;
 
 
 void startupWifi() {
@@ -81,6 +86,53 @@ void startupWifi() {
   }
 }
 
+// Json Variable to Hold Sensor Readings
+JSONVar readings;
+
+String getSensorReadings() {
+  readings["temperature"] = String(digitalRead(minSensorPin));
+  readings["humidity"] = String(digitalRead(maxSensorPin));
+  readings["pressure"] = String("000000");
+  String jsonString = JSON.stringify(readings);
+  return jsonString;
+}
+
+void notifyClients(String sensorReadings) {
+  ws.textAll(sensorReadings);
+}
+
+void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
+  AwsFrameInfo *info = (AwsFrameInfo *)arg;
+  if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+    //data[len] = 0;
+    //String message = (char*)data;
+    // Check if the message is "getReadings"
+    //if (strcmp((char*)data, "getReadings") == 0) {
+    //if it is, send current sensor readings
+    String sensorReadings = getSensorReadings();
+    Serial.print(sensorReadings);
+    notifyClients(sensorReadings);
+    //}
+  }
+}
+
+void onEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len) {
+  switch (type) {
+    case WS_EVT_CONNECT:
+      Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+      break;
+    case WS_EVT_DISCONNECT:
+      Serial.printf("WebSocket client #%u disconnected\n", client->id());
+      break;
+    case WS_EVT_DATA:
+      handleWebSocketMessage(arg, data, len);
+      break;
+    case WS_EVT_PONG:
+    case WS_EVT_ERROR:
+      break;
+  }
+}
+
 void initWebSocket() {
   ws.onEvent(onEvent);
   server.addHandler(&ws);
@@ -89,8 +141,15 @@ void initWebSocket() {
 void setup() {
   Serial.begin(9600);
 
+  pinMode(minSensorPin, INPUT_PULLUP);  // Usando resistor pull-up interno
+  pinMode(maxSensorPin, INPUT_PULLUP);  // Usando resistor pull-up interno
+
+  digitalWrite(relePin, LOW);  // Começa DESLIGADO
+  Serial.println("Teste com NO - Deve LIGAR em LOW");
+  pinMode(LED_BUILTIN, OUTPUT);
+
   startupWifi();
-  initWebSocket()
+  initWebSocket();
 
   delay(1000);
 }
